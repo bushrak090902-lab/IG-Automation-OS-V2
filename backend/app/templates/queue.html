@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Queue · IG Automation OS{% endblock %}
+{% block eyebrow %}Console / Queue{% endblock %}
+{% block heading %}Publishing Queue{% endblock %}
+
+{% block content %}
+<div class="stat-grid" data-testid="queue-stats">
+  <div class="stat-card"><div class="stat-eyebrow">Total Jobs</div><div class="stat-value" id="q-total">0</div></div>
+  <div class="stat-card"><div class="stat-eyebrow">Queued</div><div class="stat-value" id="q-queued">0</div></div>
+  <div class="stat-card stat-card--accent"><div class="stat-eyebrow">Processing</div><div class="stat-value" id="q-processing">0</div></div>
+  <div class="stat-card"><div class="stat-eyebrow">Successful</div><div class="stat-value" id="q-successful">0</div></div>
+  <div class="stat-card stat-card--warn"><div class="stat-eyebrow">Failed</div><div class="stat-value" id="q-failed">0</div></div>
+</div>
+
+<section class="card">
+  <div class="card-head card-head--simple">
+    <h2 class="card-title">Worker Pool</h2>
+    <span class="muted" id="pool-summary">—</span>
+  </div>
+  <div class="worker-grid" id="worker-grid" data-testid="worker-grid">
+    <div class="empty-block">Worker pool starting…</div>
+  </div>
+  <p class="muted worker-note">Each worker opens <strong>one</strong> persistent browser per account and reuses it across all of that account's jobs — browser startup cost is paid once per account-cycle, never per upload.</p>
+</section>
+
+<div class="page-actions">
+  <div class="filter-cluster" data-testid="queue-filters">
+    <button class="chip chip--active" data-filter="all">All</button>
+    <button class="chip" data-filter="queued">Queued</button>
+    <button class="chip" data-filter="processing">Processing</button>
+    <button class="chip" data-filter="successful">Successful</button>
+    <button class="chip" data-filter="failed">Failed</button>
+  </div>
+  <div class="add-account">
+    <input type="text" id="q-search" class="input" placeholder="Search account…" data-testid="queue-search" />
+    <button type="button" class="btn-ghost btn-sm" id="retry-failed-btn" data-testid="retry-failed-btn">
+      <span>Retry Failed</span><span class="btn-arrow">↻</span>
+    </button>
+  </div>
+</div>
+
+<div class="table-card">
+  <div class="table-scroll">
+    <table class="data-table" data-testid="jobs-table">
+      <thead>
+        <tr>
+          <th class="col-id">Job</th>
+          <th>Campaign</th>
+          <th>Account</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Attempts</th>
+          <th>Detail</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody id="jobs-tbody" data-testid="jobs-tbody">
+        <tr><td colspan="8" class="empty-cell">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/api/static/js/queue.js"></script>
+{% endblock %}

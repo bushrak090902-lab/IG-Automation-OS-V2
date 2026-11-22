@@ -1,0 +1,39 @@
+{
+  "summary": "Backend-only review of the NEW Bulk Import & Bulk Connect module (Phase 2b). Executed 33 pytest tests covering: (1) protected-file invariant (publisher.py, publisher_queue.py, browser_session.py — git diff = 0), (2) py_compile of all 4 new/modified backend files, (3) static-analysis contracts on bulk_connect.py (import isolation, no publish primitives, no password persistence, popup rules, no large fixed sleeps), (4) CSV parser edge cases (7 cases: BOM, dedup, case-insensitive headers, blank rows, missing column, empty file, valid), (5) job registry + BulkJob state machine + status_snapshot shape and no-password-leak check, (6) OTP submission guards (wrong state / correct state / empty code), (7) FastAPI route registration via TestClient (all 6 expected paths present), (8) preview endpoint password masking (posted 'SuperSecret123' → response body never contains it, password_masked='••••••••'), (9) 400 on malformed CSV, (10) idle status when no job, (11) data-testid coverage on bulk_import.html (all 15 required testids present), (12) sidebar nav-bulk-import link in base.html. Live Playwright / Instagram end-to-end login was NOT executed per task note (sandbox has no browsers / no real IG accounts) — that runs on Windows box. Result: 33/33 passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bulk_import.py",
+    "/app/test_reports/pytest/bulk_import_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "bulk_connect.py is ~770 lines — approaching the 700-line split threshold. Consider splitting popup-handler + login-state-detection into a sibling module (e.g. bulk_connect_popups.py, bulk_connect_login.py) for maintainability. Non-blocking.",
+    "server.py still uses deprecated @app.on_event('startup') (FastAPI PendingDeprecationWarning). Migrate to lifespan handlers when convenient — not introduced by this PR.",
+    "In start_job(), REGISTRY.current() only guards against concurrent 'running' jobs, not against a job whose task was cancelled mid-flight. Edge case only.",
+    "The bulk_import.py preview endpoint reads the entire upload into memory; with the 5000-row cap and text CSVs this is fine, but you may want to add a Content-Length pre-check to reject huge uploads early.",
+    "PROTECTED FILES: verified untouched via `git diff` — publisher.py, publisher_queue.py, browser_session.py all show zero diff. ✓",
+    "PASSWORD SAFETY: verified — passwords live only in BulkJob._passwords (Dict), popped after each account in _run_job's finally block, never logged, never persisted, and preview endpoint masks them. ✓",
+    "POPUP POLICY: verified — CLICK_YES_TEXTS is exactly ['Save Info', 'Save info']; FORBIDDEN_TEXTS lists 'Turn On'/'Enable Contacts'/'Sync Contacts' and none of these appear in the click paths of _handle_popups (only in docstrings/lists). ✓",
+    "IMPORT ISOLATION: verified — uses `from . import browser_session` and accesses `browser_session._has_display`, `_lock_for`, `_update_account`, `_write_log`, `_verify_persistent_profile` as attributes; no `from .browser_session import ...` re-imports. ✓",
+    "PUBLISH-PATH SAFETY: verified — no `configure_to_clips`, `_perform_publish`, `set_input_files`, or `publish_job` references in bulk_connect.py. ✓",
+    "NO LARGE FIXED SLEEPS: verified — the only asyncio.sleep values in bulk_connect.py are 0.6, 0.7, 1.0 (all ≤ 2.0s poll intervals). All login/credential paths use Playwright locator.wait_for(state='visible', timeout=…). ✓"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bulk_import.py (NEW — 33 tests)"
+  ],
+  "success_rate": {"backend": "100% (33/33)", "frontend": "N/A (skipped per task)"},
+  "test_credentials": "N/A — no auth in this module",
+  "seed_data_creation": "None — tests use in-memory REGISTRY.create() and TestClient with ephemeral CSV bytes; no DB writes triggered (real DB writes only happen inside _connect_one_account which requires Playwright and was not exercised).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Playwright-driven E2E of the actual Instagram login flow was intentionally NOT run here — the task note said it runs on the user's Windows box against real IG accounts. If a future agent wants to smoke-test the browser launch itself, they'd need to install playwright chromium and stub Instagram. The pytest file /app/backend/tests/test_bulk_import.py is safe to re-run and asserts the protected-file invariant via `git diff` — if any of publisher.py / publisher_queue.py / browser_session.py get touched later, tests will fail loudly. bulk_connect.py's _handle_popups CLICK_YES_TEXTS/CLICK_DISMISS_TEXTS/FORBIDDEN_TEXTS lists are the safety contract; do not add 'Turn On' or 'Enable Contacts' to any click path.",
+  "rca of the issue": "N/A — no bugs found. Two initial pytest failures were false positives in my own regex assertions (matched multi-line function signatures and docstring text); tightened the regexes to line-scoped patterns and stripped docstrings before scanning _handle_popups body. All 33 tests pass after the test-file fix."
+}

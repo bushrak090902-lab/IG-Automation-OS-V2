@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Accounts · IG Automation OS{% endblock %}
+{% block eyebrow %}Console / Accounts{% endblock %}
+{% block heading %}Managed Account Pool{% endblock %}
+
+{% block content %}
+<div id="env-banner" class="env-banner hidden" data-testid="env-banner"></div>
+
+<div class="stat-grid" data-testid="account-stats">
+  <div class="stat-card"><div class="stat-eyebrow">Total</div><div class="stat-value" id="stat-total">0</div></div>
+  <div class="stat-card stat-card--accent"><div class="stat-eyebrow">Available</div><div class="stat-value" id="stat-available">0</div></div>
+  <div class="stat-card"><div class="stat-eyebrow">Busy</div><div class="stat-value" id="stat-busy">0</div></div>
+  <div class="stat-card stat-card--warn"><div class="stat-eyebrow">Session Expired</div><div class="stat-value" id="stat-expired">0</div></div>
+  <div class="stat-card stat-card--muted"><div class="stat-eyebrow">Disabled</div><div class="stat-value" id="stat-disabled">0</div></div>
+</div>
+
+<div class="page-actions">
+  <p class="muted">Each account is bound to its own persistent Playwright profile. Passwords, cookies and session IDs are never stored or displayed — only kept inside the browser profile on disk.</p>
+  <div class="add-account">
+    <input type="text" id="new-account-name" class="input" placeholder="account_name" data-testid="new-account-name" />
+    <button type="button" class="btn-primary btn-sm" id="add-account-btn" data-testid="add-account-btn">
+      <span>Add Account</span><span class="btn-arrow">+</span>
+    </button>
+    <a href="/api/bulk-connect" class="btn-primary btn-sm" data-testid="bulk-import-btn">
+      <span>Bulk Import</span><span class="btn-arrow">↥</span>
+    </a>
+    <button type="button" class="btn-ghost btn-sm" id="bulk-username-btn" data-testid="bulk-username-btn">
+      <span>Bulk Username Import</span><span class="btn-arrow">✎</span>
+    </button>
+    <button type="button" class="btn-ghost btn-sm" id="select-toggle-btn" data-testid="select-toggle-btn">
+      <span>Select</span><span class="btn-arrow">☑</span>
+    </button>
+  </div>
+</div>
+
+<div id="bulk-toolbar" class="bulk-toolbar hidden" data-testid="bulk-toolbar">
+  <div class="bulk-toolbar-info">
+    <span class="mono" id="bulk-count-label">Selected: 0 accounts</span>
+    <span class="bulk-progress mono hidden" id="bulk-progress" data-testid="bulk-progress"></span>
+  </div>
+  <div class="bulk-toolbar-actions">
+    <button type="button" class="btn-primary btn-sm" data-bulk="connect" data-testid="bulk-connect-btn"><span>Connect</span><span class="btn-arrow">→</span></button>
+    <button type="button" class="btn-ghost btn-sm" data-bulk="verify"  data-testid="bulk-verify-btn">Verify</button>
+    <button type="button" class="btn-ghost btn-sm" data-bulk="enable"  data-testid="bulk-enable-btn">Enable</button>
+    <button type="button" class="btn-ghost btn-sm" data-bulk="disable" data-testid="bulk-disable-btn">Disable</button>
+    <button type="button" class="btn-ghost btn-sm" data-bulk="delete"  data-testid="bulk-delete-btn">Delete</button>
+    <button type="button" class="btn-ghost btn-sm" id="clear-selection-btn" data-testid="clear-selection-btn">Clear Selection</button>
+  </div>
+</div>
+
+<div class="table-card">
+  <div class="table-scroll">
+    <table class="data-table" data-testid="accounts-table">
+      <thead>
+        <tr>
+          <th class="col-select hidden" id="th-select-cell">
+            <input type="checkbox" id="select-all-cb" data-testid="select-all-cb" aria-label="Select all" />
+          </th>
+          <th class="col-id">ID</th>
+          <th>Account</th>
+          <th>Session</th>
+          <th>Status</th>
+          <th class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="accounts-tbody" data-testid="accounts-tbody">
+        <tr><td colspan="6" class="empty-cell">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Bulk Username Mapping (isolated feature) -->
+<div class="modal hidden" id="username-modal" data-testid="username-modal" role="dialog" aria-modal="true">
+  <div class="modal-backdrop" id="username-modal-backdrop"></div>
+  <div class="modal-card modal-card--wide">
+    <div class="modal-eyebrow">Accounts / Rename</div>
+    <h3 class="modal-title">Bulk Username Import</h3>
+    <p class="modal-body">Replace only the displayed username for existing account IDs. Profiles, cookies, sessions, campaigns and IDs are never touched — only <strong>account_name</strong> changes.</p>
+
+    <div class="um-toolbar">
+      <button type="button" class="btn-ghost btn-sm" id="um-template-btn" data-testid="um-template-btn">
+        <span>Download CSV Template</span><span class="btn-arrow">↓</span>
+      </button>
+      <label class="btn-ghost btn-sm um-upload" data-testid="um-upload-label">
+        <span id="um-file-label">Upload CSV</span><span class="btn-arrow">↥</span>
+        <input type="file" id="um-file" accept=".csv" hidden data-testid="um-file-input" />
+      </label>
+      <button type="button" class="btn-primary btn-sm" id="um-import-btn" data-testid="um-import-btn" disabled>
+        <span>Import</span><span class="btn-arrow">→</span>
+      </button>
+    </div>
+
+    <div id="um-summary" class="um-summary hidden" data-testid="um-summary"></div>
+
+    <div class="table-scroll um-preview-scroll">
+      <table class="data-table" data-testid="um-preview-table">
+        <thead>
+          <tr><th class="col-id">ID</th><th>Old Username</th><th>New Username</th><th>Status</th></tr>
+        </thead>
+        <tbody id="um-preview-tbody" data-testid="um-preview-tbody">
+          <tr><td colspan="4" class="empty-cell">Download the template, fill in usernames, then upload to preview.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="um-close" data-testid="um-close">Close</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/api/static/js/accounts.js"></script>
+<script src="/api/static/js/username_mapping.js"></script>
+{% endblock %}

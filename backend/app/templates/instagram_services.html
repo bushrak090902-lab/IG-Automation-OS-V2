@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Instagram Services | IG Automation OS{% endblock %}
+{% block eyebrow %}Console / Services{% endblock %}
+{% block heading %}Instagram Services{% endblock %}
+{% block content %}
+<div id="svc-dashboard">
+  <p class="muted">Manage Instagram service requests and track manual workflows. No automated engagement delivery.</p>
+
+  <div class="stat-grid" id="svc-stats" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="stat-card"><div class="stat-eyebrow">Total Orders</div><div class="stat-value" id="svc-total">--</div></div>
+    <div class="stat-card stat-card--accent"><div class="stat-eyebrow">Running</div><div class="stat-value" id="svc-processing">--</div></div>
+    <div class="stat-card"><div class="stat-eyebrow">Completed</div><div class="stat-value" id="svc-completed">--</div></div>
+    <div class="stat-card stat-card--warn"><div class="stat-eyebrow">Failed</div><div class="stat-value" id="svc-failed">--</div></div>
+  </div>
+
+  <section class="card svc-section">
+    <div class="card-head card-head--simple">
+      <h2 class="card-title">Create New Order</h2>
+      <span class="muted">Manual workflow</span>
+    </div>
+
+    <div class="svc-categories">
+      {% for service, symbol in [('followers','+'),('views','◉'),('likes','♡'),('comments','▤'),('shares','➤'),('reposts','↻')] %}
+      <button type="button" class="svc-category {% if service=='likes' %}selected{% endif %}" data-service="{{ service }}">
+        <span class="svc-icon">{{ symbol }}</span>
+        <span>{{ service|title }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <form id="svc-form" class="svc-form">
+      <label>Service
+        <select class="input" id="svc-service" required>
+          {% for service in ['followers','views','likes','comments','shares','reposts'] %}
+          <option value="{{ service }}" {% if service=='likes' %}selected{% endif %}>{{ service|title }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Instagram Profile / Post / Reel URL
+        <input class="input" type="url" id="svc-url" placeholder="https://www.instagram.com/p/..." required>
+      </label>
+      <label>Requested Quantity
+        <input class="input" type="number" id="svc-quantity" min="1" max="1000000" value="150" required>
+      </label>
+      <label>Notes (optional)
+        <input class="input" id="svc-notes" maxlength="2000" placeholder="Internal notes">
+      </label>
+      <button class="btn-primary" type="submit" id="svc-submit">Create Order</button>
+    </form>
+  </section>
+
+  <section class="card svc-section">
+    <div class="card-head card-head--simple">
+      <h2 class="card-title">Order History</h2>
+      <button class="btn-ghost btn-sm" id="svc-refresh" type="button">Refresh</button>
+    </div>
+    <div class="svc-filters">
+      <select class="input" id="svc-filter-service">
+        <option value="">All services</option>
+        {% for service in ['followers','views','likes','comments','shares','reposts'] %}
+        <option value="{{ service }}">{{ service|title }}</option>
+        {% endfor %}
+      </select>
+      <select class="input" id="svc-filter-status">
+        <option value="">All statuses</option>
+        {% for status in ['pending','processing','completed','partially_completed','failed','cancelled'] %}
+        <option value="{{ status }}">{{ status|replace('_',' ')|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>ID</th><th>Service</th><th>Mode</th><th>Instagram URL</th><th>Quantity</th><th>Status</th><th>Progress</th><th>Created</th><th>Completed</th><th>Actions</th></tr></thead>
+        <tbody id="svc-orders"><tr><td colspan="10">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card svc-section">
+    <div class="card-head card-head--simple">
+      <h2 class="card-title">Account Availability</h2>
+      <span class="muted" id="svc-account-summary">Loading...</span>
+    </div>
+    <p class="muted">Connected accounts are summarized here. Manage individual accounts in the Accounts tab.</p>
+  </section>
+
+  <section class="card svc-section" id="svc-detail" hidden>
+    <div class="card-head card-head--simple"><h2 class="card-title">Request Details &amp; Logs</h2></div>
+    <div id="svc-detail-content"></div>
+    <div id="svc-logs" class="muted"></div>
+  </section>
+
+  <span id="svc-pending" hidden></span>
+  <span id="svc-available" hidden></span>
+  <table hidden><tbody id="svc-accounts"></tbody></table>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/api/static/js/instagram_services.js"></script>{% endblock %}

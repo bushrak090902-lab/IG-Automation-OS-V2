@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Bulk Import · IG Automation OS{% endblock %}
+{% block eyebrow %}Onboarding{% endblock %}
+{% block heading %}Bulk Import & Connect{% endblock %}
+{% block content %}
+<div class="stack" data-testid="page-bulk-import">
+
+  <!-- Upload -->
+  <section class="card" data-testid="bulk-upload-card">
+    <div class="card-head">
+      <h2 class="card-title">1. Upload CSV</h2>
+      <p class="card-sub">
+        Two columns required: <code>username</code>, <code>password</code>.
+        Passwords are held in memory only and never written to disk or logs.
+      </p>
+    </div>
+    <div class="row" style="gap:16px; align-items:center;">
+      <input type="file" id="csv-file" accept=".csv,text/csv" data-testid="csv-file-input" />
+      <button class="btn" id="btn-preview" data-testid="btn-preview">Parse & Preview</button>
+      <button class="btn btn-primary" id="btn-start" data-testid="btn-start" disabled>Start Bulk Connect</button>
+    </div>
+    <div id="upload-error" class="banner banner--error" data-testid="upload-error" hidden></div>
+    <div id="upload-info" class="banner banner--info" data-testid="upload-info" hidden></div>
+  </section>
+
+  <!-- Progress dashboard -->
+  <section class="card" data-testid="bulk-progress-card" hidden>
+    <div class="card-head">
+      <h2 class="card-title">2. Progress</h2>
+      <p class="card-sub" id="progress-sub">Waiting…</p>
+    </div>
+
+    <div class="stats-grid" data-testid="bulk-stats">
+      <div class="stat"><div class="stat-label">Total</div><div class="stat-value" data-testid="stat-total">0</div></div>
+      <div class="stat"><div class="stat-label">Connected</div><div class="stat-value" data-testid="stat-connected">0</div></div>
+      <div class="stat"><div class="stat-label">Failed</div><div class="stat-value" data-testid="stat-failed">0</div></div>
+      <div class="stat"><div class="stat-label">OTP Required</div><div class="stat-value" data-testid="stat-otp">0</div></div>
+      <div class="stat"><div class="stat-label">Running</div><div class="stat-value" data-testid="stat-running">0</div></div>
+      <div class="stat"><div class="stat-label">Remaining</div><div class="stat-value" data-testid="stat-remaining">0</div></div>
+    </div>
+
+    <div class="progressbar-wrap" style="margin-top:16px;">
+      <div class="progressbar" data-testid="progress-bar">
+        <div class="progressbar-fill" id="progress-fill" style="width:0%;"></div>
+      </div>
+      <div class="progress-meta">
+        <span id="progress-percent" data-testid="progress-percent">0%</span>
+        <span id="progress-eta" data-testid="progress-eta">ETA: —</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Accounts table -->
+  <section class="card" data-testid="bulk-accounts-card" hidden>
+    <div class="card-head">
+      <h2 class="card-title">3. Accounts</h2>
+    </div>
+    <table class="data-table" data-testid="bulk-accounts-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Username</th>
+          <th>Password</th>
+          <th>Status</th>
+          <th>Message</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="accounts-tbody"></tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/api/static/js/bulk_import.js"></script>
+{% endblock %}

@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 4 validates the bulk_connect.py login-input resilience fix. All 19 new tests + all 33 iteration_3 regression tests pass (52/52). Protected files (publisher.py, publisher_queue.py, browser_session.py) verified unchanged via git diff. Static + monkey-patched-mock verification confirms: selector order exact, wait_until='load' replaces 'domcontentloaded', document.readyState==='complete' wait present, LoginInputNotFound(RuntimeError) with .artifacts replaces raw TimeoutError, BULK_DEBUG_DIR created at import time, graceful failure path sets state.status='failed' cleanly, password/submit locators untouched, popup/OTP constants untouched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_bulk_connect_login_fix.py",
+    "/app/test_reports/pytest/iteration_4_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix implementation is clean and scope-respecting. Only bulk_connect.py modified (+163/-5 lines).",
+    "Diagnostic artifacts written to backend/logs/bulk_connect_debug/ include url, title, html, screenshot — sufficient for future RCA if IG changes selectors again.",
+    "Fallback ordering aria-label -> autocomplete -> name -> type='text' is sensible; the type='text' fallback is broad but appropriate as the last resort on a login page.",
+    "Consider (future improvement, not required now): treat 'input[type=\"text\"]' match as a warning log since it's the most ambiguous fallback."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bulk_connect_login_fix.py (new)"
+  ],
+  "success_rate": {"backend": "100% (52/52)", "frontend": "n/a"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration_4 confirms bulk_connect.py login-input fix. Test file at backend/tests/test_bulk_connect_login_fix.py provides both static invariants and monkey-patched mock Playwright objects (FakePage/FakeLocator) that can be reused for future login-flow changes. Real Playwright/IG cannot be tested in this sandbox — only static + mock verification is feasible. The FakePage stub supports goto/wait_for_function/locator/title/content/screenshot.",
+  "rca of the issue": "Original TimeoutError arose because page.goto used wait_until='domcontentloaded', which fires before IG's React bundle mounts <input name='username'>. Fix: switch to wait_until='load', explicitly wait for document.readyState==='complete', then poll a 4-selector fallback list (aria-label, autocomplete, name, type='text') until one is visible. On timeout, dump URL/title/HTML/screenshot to backend/logs/bulk_connect_debug/ and raise a descriptive LoginInputNotFound instead of a raw TimeoutError, which is caught by _connect_one_account to set state.status='failed' cleanly."
+}

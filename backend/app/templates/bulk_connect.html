@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Bulk Connect · IG Automation OS{% endblock %}
+{% block eyebrow %}Console / Bulk Connect{% endblock %}
+{% block heading %}Bulk Import &amp; Connect{% endblock %}
+
+{% block content %}
+<div id="bulk-connect" class="bulk-connect-page" data-testid="page-bulk-connect">
+
+  <section class="card bc-upload-card" data-testid="bc-upload-card">
+    <header class="card-head">
+      <div class="card-index">01</div>
+      <div>
+        <h2 class="card-title">CSV Upload</h2>
+        <p class="card-sub">Format: <span class="mono">username,password</span> — one account per line. Passwords are held in memory only for the duration of the batch and never stored on disk.</p>
+      </div>
+    </header>
+
+    <label class="dropzone bc-dropzone" id="bc-dropzone" data-testid="bc-dropzone">
+      <input id="bc-file-input" type="file" accept=".csv" hidden data-testid="bc-file-input" />
+      <div class="dropzone-inner">
+        <div class="dropzone-glyph">↥</div>
+        <div class="dropzone-title">Drop CSV here or <span class="link-accent">browse</span></div>
+        <div class="dropzone-sub" id="bc-file-hint">CSV with columns <span class="mono">username,password</span></div>
+      </div>
+    </label>
+
+    <div class="bc-preview hidden" id="bc-preview" data-testid="bc-preview">
+      <div class="bc-preview-meta">
+        <span class="mono"><span id="bc-valid">0</span> valid</span>
+        <span class="mono"><span id="bc-dup">0</span> duplicates</span>
+        <span class="mono"><span id="bc-invalid">0</span> invalid</span>
+        <button type="button" class="btn-ghost btn-sm" id="bc-clear" data-testid="bc-clear">Clear</button>
+      </div>
+      <ul id="bc-preview-list" class="file-list file-list--static bc-preview-list" data-testid="bc-preview-list"></ul>
+      <div class="bc-start-row">
+        <label class="field-label" for="bc-batch-name">Batch Name</label>
+        <input id="bc-batch-name" class="input" placeholder="e.g. Nov Wave 1" data-testid="bc-batch-name" />
+        <button type="button" class="btn-primary" id="bc-start-btn" data-testid="bc-start-btn">
+          <span>Start Bulk Connect</span><span class="btn-arrow">→</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card hidden" id="bc-batch-panel" data-testid="bc-batch-panel">
+    <header class="card-head card-head--simple">
+      <div>
+        <h2 class="card-title" id="bc-batch-title">Batch —</h2>
+        <p class="card-sub mono" id="bc-batch-sub"></p>
+      </div>
+      <div class="bc-controls">
+        <button type="button" class="btn-ghost btn-sm" id="bc-pause" data-testid="bc-pause">Pause</button>
+        <button type="button" class="btn-ghost btn-sm" id="bc-resume" data-testid="bc-resume">Resume</button>
+        <button type="button" class="btn-ghost btn-sm" id="bc-cancel" data-testid="bc-cancel">Cancel</button>
+        <a class="btn-ghost btn-sm" id="bc-export" href="#" data-testid="bc-export">Export CSV</a>
+        <a class="btn-ghost btn-sm" id="bc-logs-zip" href="#" data-testid="bc-logs-zip">Download Logs</a>
+      </div>
+    </header>
+
+    <div class="stat-grid bc-stats" data-testid="bc-stats">
+      <div class="stat-card"><div class="stat-eyebrow">Total</div><div class="stat-value" id="bc-s-total">0</div></div>
+      <div class="stat-card"><div class="stat-eyebrow">Pending</div><div class="stat-value" id="bc-s-pending">0</div></div>
+      <div class="stat-card stat-card--accent"><div class="stat-eyebrow">Connected</div><div class="stat-value" id="bc-s-connected">0</div></div>
+      <div class="stat-card stat-card--warn"><div class="stat-eyebrow">OTP</div><div class="stat-value" id="bc-s-otp">0</div></div>
+      <div class="stat-card stat-card--warn"><div class="stat-eyebrow">Checkpoint</div><div class="stat-value" id="bc-s-checkpoint">0</div></div>
+      <div class="stat-card"><div class="stat-eyebrow">Retrying</div><div class="stat-value" id="bc-s-retrying">0</div></div>
+      <div class="stat-card"><div class="stat-eyebrow">Failed</div><div class="stat-value" id="bc-s-failed">0</div></div>
+      <div class="stat-card stat-card--muted"><div class="stat-eyebrow">Completed</div><div class="stat-value" id="bc-s-completed">0</div></div>
+    </div>
+
+    <div class="progress-outer" data-testid="bc-progress"><div class="progress-bar" id="bc-progress-bar" style="width:0%"></div></div>
+    <div class="progress-label"><span id="bc-progress-label">0% · ETA —</span></div>
+
+    <div class="filter-cluster bc-filters" data-testid="bc-filters">
+      <button class="chip chip--active" data-filter="all" data-testid="bc-filter-all">All</button>
+      <button class="chip" data-filter="pending">Pending</button>
+      <button class="chip" data-filter="logging_in">Logging In</button>
+      <button class="chip" data-filter="connected">Connected</button>
+      <button class="chip" data-filter="otp_required">OTP</button>
+      <button class="chip" data-filter="checkpoint_required">Checkpoint</button>
+      <button class="chip" data-filter="retrying">Retrying</button>
+      <button class="chip" data-filter="failed">Failed</button>
+      <input type="text" class="input bc-search" id="bc-search" placeholder="Search username…" data-testid="bc-search" />
+    </div>
+
+    <div class="table-card">
+      <div class="table-scroll">
+        <table class="data-table bc-table" data-testid="bc-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Status</th>
+              <th>Message</th>
+              <th>Started</th>
+              <th>Finished</th>
+              <th>Profile</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="bc-tbody" data-testid="bc-tbody">
+            <tr><td colspan="7" class="empty-cell">Waiting for events…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" data-testid="bc-batches-history">
+    <header class="card-head card-head--simple">
+      <h2 class="card-title">Previous Batches</h2>
+    </header>
+    <div class="table-card">
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Name</th><th>Status</th><th>Total</th><th>Connected</th><th>OTP</th><th>Failed</th><th>Created</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="bc-batches-tbody" data-testid="bc-batches-tbody">
+            <tr><td colspan="9" class="empty-cell">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/api/static/js/bulk_connect.js"></script>
+{% endblock %}
