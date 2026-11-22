@@ -64,6 +64,9 @@ chainlit.md
 # Data and databases
 agenthub/agents/youtube/db
 
+# Local pre-edit backups (never commit)
+backend/backups_pre_diagnostics/
+
 # Archive files and large assets
 **/*.zip
 **/*.tar.gz

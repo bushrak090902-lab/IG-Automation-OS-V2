@@ -175,3 +175,32 @@ class InstagramServiceOrderLog(Base):
     event_type = Column(String(40), nullable=False)
     message = Column(Text, nullable=False, default="")
     created_at = Column(DateTime, default=_now, nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics job queue — persistent SQLite queue for Instagram Services.
+# One job row per diagnostic order; the isolated diagnostics worker pool
+# (app/queue/instagram_services_worker.py) claims jobs from this table.
+# Deliberately a separate table from the publishing `jobs` table so the two
+# worker lanes can never interfere with each other.
+# ---------------------------------------------------------------------------
+class InstagramServiceJob(Base):
+    __tablename__ = "instagram_service_jobs"
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("instagram_service_orders.id"), nullable=False, index=True)
+    # queued | assigned | running | succeeded | failed | cancelled
+    status = Column(String(32), nullable=False, default="queued", index=True)
+    worker_id = Column(String(64), nullable=False, default="")
+    account_id = Column(Integer, nullable=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    error = Column(Text, nullable=False, default="")
+    result = Column(Text, nullable=False, default="{}")  # JSON diagnostic result (no cookies/secrets)
+    created_at = Column(DateTime, default=_now, nullable=False)
+    assigned_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=_now, onupdate=_now, nullable=False)
+
+
+Index("ix_svc_job_order_status", InstagramServiceJob.order_id, InstagramServiceJob.status)

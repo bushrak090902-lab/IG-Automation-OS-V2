@@ -46,6 +46,12 @@ DEFAULT_SETTINGS = {
     "bulk_connect_max_concurrency": "10",
     "bulk_connect_min_delay": "5",
     "bulk_connect_max_delay": "120",
+    # Instagram Services diagnostics worker (fully isolated from publishing)
+    "svc_diag_concurrency": "1",
+    "svc_diag_headless": "false",  # visible Chromium when the host has a display
+    "svc_diag_browser_timeout_ms": "60000",
+    "svc_diag_job_timeout_seconds": "180",
+    "svc_diag_max_retries": "2",
 }
 
 

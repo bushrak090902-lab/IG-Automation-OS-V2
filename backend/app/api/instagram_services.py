@@ -1,4 +1,12 @@
-"""Manual-only internal Instagram service request tracking."""
+"""Manual-only internal Instagram service request tracking.
+
+Diagnostic orders (execution_mode="diagnostic") are saved immediately and a
+job is enqueued on the persistent SQLite queue
+(models.InstagramServiceJob); the isolated diagnostics worker
+(app/queue/instagram_services_worker.py) processes them with a real,
+permitted browser-backed check. No engagement automation is performed.
+"""
+import json
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from typing import Literal
@@ -9,7 +17,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from ..database import get_db
-from ..models import Account, InstagramServiceOrder as Order, InstagramServiceOrderLog as OrderLog
+from ..models import (Account, Setting, InstagramServiceJob,
+                      InstagramServiceOrder as Order,
+                      InstagramServiceOrderLog as OrderLog)
 
 router = APIRouter(prefix="/v1/instagram-services", tags=["instagram-services"])
 SERVICES = ("followers", "views", "likes", "comments", "shares", "reposts")
@@ -52,6 +62,43 @@ def as_dict(o):
             for k in ("id", "service_type", "instagram_url", "requested_quantity", "completed_quantity", "status", "execution_mode", "notes", "created_at", "updated_at", "completed_at")}
 
 
+def _parsed_job_result(job) -> dict | None:
+    try:
+        return json.loads(job.result) if job.result else None
+    except ValueError:
+        return None
+
+
+def _job_summary(db: Session, order_id: int) -> dict:
+    """Latest diagnostic job for an order — live status, worker assignment,
+    retries and result summary for the dashboard."""
+    job = (db.query(InstagramServiceJob)
+             .filter(InstagramServiceJob.order_id == order_id)
+             .order_by(InstagramServiceJob.id.desc())
+             .first())
+    if not job:
+        return {"job_id": None, "job_status": None, "job_worker": None,
+                "job_attempts": 0, "job_max_attempts": None,
+                "job_error": None, "job_result": None}
+    return {"job_id": job.id, "job_status": job.status, "job_worker": job.worker_id,
+            "job_attempts": job.attempt_count, "job_max_attempts": job.max_attempts,
+            "job_error": job.error, "job_result": _parsed_job_result(job)}
+
+
+def order_dict(o, db: Session) -> dict:
+    d = as_dict(o)
+    d.update(_job_summary(db, o.id))
+    return d
+
+
+def _diag_max_retries(db: Session) -> int:
+    row = db.query(Setting).filter(Setting.key == "svc_diag_max_retries").first()
+    try:
+        return max(0, min(5, int(row.value))) if row else 2
+    except (TypeError, ValueError):
+        return 2
+
+
 def log(db, o, kind, msg):
     db.add(OrderLog(order_id=o.id, event_type=kind, message=msg))
 
@@ -82,13 +129,29 @@ def create_order(payload: CreateOrder, db: Session = Depends(get_db)):
         raise HTTPException(422, "Followers requires an Instagram profile URL")
     if payload.service_type != "followers" and not is_post:
         raise HTTPException(422, "This service requires an Instagram post or reel URL")
-    o = Order(**payload.dict(), status="pending", completed_quantity=0, execution_mode="manual")
+    o = Order(**payload.dict(), status="pending", completed_quantity=0, execution_mode="diagnostic")
     db.add(o)
     db.flush()
-    log(db, o, "created", "Manual workflow request created; no Instagram actions executed")
+    # Enqueue a real diagnostic job on the persistent SQLite queue.
+    job = InstagramServiceJob(
+        order_id=o.id,
+        status="queued",
+        max_attempts=1 + _diag_max_retries(db),
+    )
+    db.add(job)
+    db.flush()
+    log(db, o, "created",
+        "Order saved immediately; diagnostic job queued — requested quantity is a reference only, no engagement delivery")
+    log(db, o, "job_queued", f"Diagnostic job #{job.id} queued and awaiting worker assignment")
     db.commit()
     db.refresh(o)
-    return as_dict(o)
+    try:
+        from ..queue.instagram_services_worker import diagnostics_worker
+        diagnostics_worker.notify()  # wake an idle worker straight away
+    except Exception:
+        pass
+    d = order_dict(o, db)
+    return d
 
 
 
@@ -129,14 +192,43 @@ def list_orders(status: str = Query(None), service: str = Query(None), db: Sessi
     if service:
         if service not in SERVICES: raise HTTPException(422, "Invalid service")
         q = q.filter(Order.service_type == service)
-    return [as_dict(o) for o in q.order_by(Order.id.desc()).limit(500).all()]
+    return [order_dict(o, db) for o in q.order_by(Order.id.desc()).limit(500).all()]
 
 
 @router.get("/orders/{order_id}")
 def get_order(order_id: int, db: Session = Depends(get_db)):
     o = db.get(Order, order_id)
     if not o: raise HTTPException(404, "Order not found")
-    return as_dict(o)
+    return order_dict(o, db)
+
+
+@router.get("/orders/{order_id}/job")
+def get_order_job(order_id: int, db: Session = Depends(get_db)):
+    if not db.get(Order, order_id): raise HTTPException(404, "Order not found")
+    job = (db.query(InstagramServiceJob)
+             .filter(InstagramServiceJob.order_id == order_id)
+             .order_by(InstagramServiceJob.id.desc())
+             .first())
+    if not job: raise HTTPException(404, "No diagnostic job attached to this order")
+    return {
+        "id": job.id, "order_id": job.order_id, "status": job.status,
+        "worker_id": job.worker_id, "account_id": job.account_id,
+        "attempt_count": job.attempt_count, "max_attempts": job.max_attempts,
+        "error": job.error, "result": _parsed_job_result(job),
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "assigned_at": job.assigned_at.isoformat() if job.assigned_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+    }
+
+
+@router.get("/worker/status")
+def diagnostics_worker_status():
+    """Live diagnostics worker lane status — fully separate from publishing workers."""
+    from ..queue.instagram_services_worker import diagnostics_worker, _settings
+    s = diagnostics_worker.status()
+    s["settings"] = _settings()
+    return s
 
 
 @router.get("/orders/{order_id}/logs")
@@ -149,6 +241,8 @@ def get_logs(order_id: int, db: Session = Depends(get_db)):
 def update_order(order_id: int, payload: UpdateOrder, db: Session = Depends(get_db)):
     o = db.get(Order, order_id)
     if not o: raise HTTPException(404, "Order not found")
+    if o.execution_mode == "diagnostic":
+        raise HTTPException(409, "Diagnostic orders are managed by the background worker; use Cancel instead")
     if o.status in ("completed", "cancelled", "failed"):
         raise HTTPException(409, "Terminal order cannot be modified")
     if payload.completed_quantity > o.requested_quantity:
@@ -176,10 +270,28 @@ def update_order(order_id: int, payload: UpdateOrder, db: Session = Depends(get_
 def cancel_order(order_id: int, db: Session = Depends(get_db)):
     o = db.get(Order, order_id)
     if not o: raise HTTPException(404, "Order not found")
-    if o.status != "pending" or o.completed_quantity:
-        raise HTTPException(409, "Only pending orders without progress can be cancelled")
+    if o.completed_quantity:
+        raise HTTPException(409, "Only orders without recorded progress can be cancelled")
+    if o.execution_mode == "diagnostic":
+        if o.status not in ("pending", "processing"):
+            raise HTTPException(409, "Only pending or processing diagnostic orders can be cancelled")
+    elif o.status != "pending":
+        raise HTTPException(409, "Only pending orders can be cancelled")
     o.status = "cancelled"
     o.completed_at = datetime.now(timezone.utc)
-    log(db, o, "cancelled", "Manual workflow request cancelled")
+    if o.execution_mode == "diagnostic":
+        job = (db.query(InstagramServiceJob)
+                 .filter(InstagramServiceJob.order_id == o.id,
+                         InstagramServiceJob.status.in_(("queued", "assigned", "running")))
+                 .order_by(InstagramServiceJob.id.desc())
+                 .first())
+        if job is not None:
+            job.status = "cancelled"
+            job.finished_at = datetime.now(timezone.utc)
+            log(db, o, "cancelled", f"Diagnostic job #{job.id} cancelled by operator; browser will be released")
+        else:
+            log(db, o, "cancelled", "Diagnostic order cancelled before a job was claimed")
+    else:
+        log(db, o, "cancelled", "Manual workflow request cancelled")
     db.commit()
     return as_dict(o)
