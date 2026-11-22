@@ -102,3 +102,8 @@ All backend + HTML routes live under `/api` (platform ingress restriction). The 
 - No SMM engagement (likes/views/comments/shares/reposts)
 - No custom audio volume control (keep original as-is)
 - No account groups
+
+## Instagram Services — Real Diagnostic Worker (feature/instagram-services-diagnostics)
+- Orders are saved immediately, then a job is queued in the persistent SQLite table `instagram_service_jobs`. An isolated worker lane (`app/queue/instagram_services_worker.py`, concurrency 1) runs a real Playwright check on a connected account's persistent profile: session health, URL reachability, screenshot, and metadata.
+- Completed means the checks passed. The requested quantity is a reference only and 0 engagement is recorded. Retries, timeouts, cancellation, crash recovery, and per-account locking are implemented.
+- Publishing pool, Bulk Connect, browser_session, and the simulation test worker are unchanged. See docs/INSTAGRAM_SERVICES_DIAGNOSTICS.md.

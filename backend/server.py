@@ -27,7 +27,8 @@ from app.api.queue import router as queue_router  # noqa: E402
 from app.api.instagram_services import router as instagram_services_router
 from app.api.username_mapping import router as username_mapping_router  # noqa: E402
 from app.queue.worker_pool import pool as worker_pool  # noqa: E402
-from app.queue.instagram_services_test_worker import test_worker
+from app.queue.instagram_services_test_worker import test_worker  # noqa: E402
+from app.queue.instagram_services_worker import diagnostics_worker  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -72,12 +73,14 @@ app.mount("/api/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.on_event("startup")
 async def on_startup():
     worker_pool.start()
+    diagnostics_worker.start()
     test_worker.start()
-    logger.info("IG Automation OS ready — SQLite initialised, worker pool online")
+    logger.info("IG Automation OS ready — SQLite initialised, worker pool + diagnostics worker online")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     await test_worker.stop()
+    await diagnostics_worker.stop()
     await worker_pool.stop()
-    logger.info("IG Automation OS shutting down — worker pool stopped")
+    logger.info("IG Automation OS shutting down — worker pool + diagnostics worker stopped")
