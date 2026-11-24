@@ -18,12 +18,25 @@ from sqlalchemy import func
 
 from ..database import get_db
 from ..models import (Account, Setting, InstagramServiceJob,
+                      InstagramServiceObservation as Observation,
                       InstagramServiceOrder as Order,
                       InstagramServiceOrderLog as OrderLog)
 
 router = APIRouter(prefix="/v1/instagram-services", tags=["instagram-services"])
 SERVICES = ("followers", "views", "likes", "comments", "shares", "reposts")
-STATUSES = ("pending", "processing", "completed", "partially_completed", "failed", "cancelled")
+STATUSES = ("pending", "processing", "verified", "completed", "partially_completed", "failed", "cancelled")
+
+# Diagnostic orders saved by the earlier version as "completed" with 0
+# delivered only passed checks — reported as verified, never as delivered.
+# (Display-level mapping; the stored rows are not modified.)
+_LEGACY_VERIFIED = ((Order.execution_mode == "diagnostic") & (Order.status == "completed")
+                    & (Order.completed_quantity == 0))
+
+
+def effective_status(o) -> str:
+    if o.execution_mode == "diagnostic" and o.status == "completed" and not o.completed_quantity:
+        return "verified"
+    return o.status
 
 
 def validate_url(value):
@@ -85,9 +98,29 @@ def _job_summary(db: Session, order_id: int) -> dict:
             "job_error": job.error, "job_result": _parsed_job_result(job)}
 
 
+def _observation_summary(db: Session, order_id: int) -> dict:
+    obs = (db.query(Observation).filter(Observation.order_id == order_id)
+             .order_by(Observation.id.asc()).all())
+    base = next((x for x in obs if x.kind == "baseline"), None)
+    latest = next((x for x in reversed(obs) if x.kind == "followup"), None)
+    recorded = [x for x in obs if x.kind == "operator_recorded"]
+    return {
+        "observed_metric": base.metric if base else None,
+        "observed_baseline": base.value if base else None,
+        "observed_latest": latest.value if latest else None,
+        "observed_delta": (latest.value - base.value) if (base and latest) else None,
+        "operator_delivered": sum(x.value for x in recorded),
+        "observations": [{"kind": x.kind, "metric": x.metric, "value": x.value, "source": x.source,
+                          "note": x.note, "created_at": x.created_at.isoformat() if x.created_at else None}
+                         for x in obs],
+    }
+
+
 def order_dict(o, db: Session) -> dict:
     d = as_dict(o)
+    d["status"] = effective_status(o)
     d.update(_job_summary(db, o.id))
+    d.update(_observation_summary(db, o.id))
     return d
 
 
@@ -118,13 +151,16 @@ def availability(db: Session = Depends(get_db)):
 @router.get("/stats")
 def stats(db: Session = Depends(get_db)):
     counts = dict(db.query(Order.status, func.count(Order.id)).group_by(Order.status).all())
+    legacy = db.query(func.count(Order.id)).filter(_LEGACY_VERIFIED).scalar() or 0
+    counts["completed"] = counts.get("completed", 0) - legacy   # Completed = delivered only
+    counts["verified"] = counts.get("verified", 0) + legacy
     return {"total": sum(counts.values()), **{s: counts.get(s, 0) for s in STATUSES}}
 
 
 @router.post("/orders", status_code=201)
 def create_order(payload: CreateOrder, db: Session = Depends(get_db)):
     path = urlparse(payload.instagram_url).path.strip("/").split("/")
-    is_post = path[0] in ("p", "reel", "tv") and len(path) >= 2
+    is_post = path[0] in ("p", "reel", "reels", "tv") and len(path) >= 2
     if payload.service_type == "followers" and (is_post or path[0] in ("stories", "explore")):
         raise HTTPException(422, "Followers requires an Instagram profile URL")
     if payload.service_type != "followers" and not is_post:
@@ -158,7 +194,7 @@ def create_order(payload: CreateOrder, db: Session = Depends(get_db)):
 @router.post("/test-orders", status_code=201)
 def create_test_order(payload: CreateOrder, db: Session = Depends(get_db)):
     path = urlparse(payload.instagram_url).path.strip("/").split("/")
-    is_post = path[0] in ("p", "reel", "tv") and len(path) >= 2
+    is_post = path[0] in ("p", "reel", "reels", "tv") and len(path) >= 2
 
     if payload.service_type == "followers" and (
         is_post or path[0] in ("stories", "explore")
@@ -188,7 +224,12 @@ def list_orders(status: str = Query(None), service: str = Query(None), db: Sessi
     q = db.query(Order)
     if status:
         if status not in STATUSES: raise HTTPException(422, "Invalid status")
-        q = q.filter(Order.status == status)
+        if status == "verified":
+            q = q.filter((Order.status == "verified") | _LEGACY_VERIFIED)
+        elif status == "completed":
+            q = q.filter(Order.status == "completed", ~_LEGACY_VERIFIED)
+        else:
+            q = q.filter(Order.status == status)
     if service:
         if service not in SERVICES: raise HTTPException(422, "Invalid service")
         q = q.filter(Order.service_type == service)
@@ -235,6 +276,37 @@ def diagnostics_worker_status():
 def get_logs(order_id: int, db: Session = Depends(get_db)):
     if not db.get(Order, order_id): raise HTTPException(404, "Order not found")
     return [{"id": x.id, "event_type": x.event_type, "message": x.message, "created_at": x.created_at.isoformat()} for x in db.query(OrderLog).filter(OrderLog.order_id == order_id).order_by(OrderLog.id).all()]
+
+
+class RecordDelivery(BaseModel):
+    quantity: int = Field(..., ge=1, le=1000000)
+    source: str = Field(..., min_length=1, max_length=200)
+    note: str = Field("", max_length=2000)
+
+
+@router.post("/orders/{order_id}/deliveries", status_code=201)
+def record_delivery(order_id: int, payload: RecordDelivery, db: Session = Depends(get_db)):
+    """Operator-recorded delivered amount (e.g. from an ads campaign report).
+    This is the only way a diagnostic order's delivered quantity changes."""
+    o = db.get(Order, order_id)
+    if not o: raise HTTPException(404, "Order not found")
+    if o.execution_mode != "diagnostic":
+        raise HTTPException(409, "Use the existing update flow for manual orders")
+    if effective_status(o) not in ("verified", "partially_completed", "failed"):
+        raise HTTPException(409, "Delivered amounts can be recorded once the order is verified")
+    total = (o.completed_quantity or 0) + payload.quantity
+    if total > o.requested_quantity:
+        raise HTTPException(422, "Recorded total cannot exceed the requested quantity")
+    db.add(Observation(order_id=o.id, kind="operator_recorded", metric="delivered", value=payload.quantity,
+                       source=payload.source.strip(), note=payload.note))
+    o.completed_quantity = total
+    o.status = "completed" if total == o.requested_quantity else "partially_completed"
+    o.completed_at = datetime.now(timezone.utc)
+    log(db, o, "operator_recorded",
+        f"Operator recorded {payload.quantity} delivered from '{payload.source.strip()}' (total {total}/{o.requested_quantity})")
+    db.commit()
+    db.refresh(o)
+    return order_dict(o, db)
 
 
 @router.patch("/orders/{order_id}")

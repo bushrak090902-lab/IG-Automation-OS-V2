@@ -190,6 +190,10 @@ class InstagramServiceJob(Base):
     order_id = Column(Integer, ForeignKey("instagram_service_orders.id"), nullable=False, index=True)
     # queued | assigned | running | succeeded | failed | cancelled
     status = Column(String(32), nullable=False, default="queued", index=True)
+    # diagnostic (first check) | followup (later re-read of public counts)
+    kind = Column(String(20), nullable=False, default="diagnostic")
+    # Earliest time the job may be claimed (retry backoff / follow-up delay)
+    not_before = Column(DateTime, nullable=True)
     worker_id = Column(String(64), nullable=False, default="")
     account_id = Column(Integer, nullable=True)
     attempt_count = Column(Integer, nullable=False, default=0)
@@ -204,3 +208,30 @@ class InstagramServiceJob(Base):
 
 
 Index("ix_svc_job_order_status", InstagramServiceJob.order_id, InstagramServiceJob.status)
+
+
+class InstagramServiceAccountState(Base):
+    """Instagram Services-only pacing/cooldown state per account.
+    The shared `accounts` table is never written by the diagnostics lane."""
+    __tablename__ = "instagram_service_account_state"
+    account_id = Column(Integer, primary_key=True)
+    available_after = Column(DateTime, nullable=True)   # rest period / cooldown end
+    restricted_at = Column(DateTime, nullable=True)
+    restriction_reason = Column(Text, nullable=False, default="")
+    restriction_count = Column(Integer, nullable=False, default=0)
+    last_check_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=_now, onupdate=_now, nullable=False)
+
+
+class InstagramServiceObservation(Base):
+    """Verified numbers for an order: public counts read by the worker
+    (baseline / followup) and delivered amounts recorded by the operator."""
+    __tablename__ = "instagram_service_observations"
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("instagram_service_orders.id"), nullable=False, index=True)
+    kind = Column(String(24), nullable=False)    # baseline | followup | operator_recorded
+    metric = Column(String(24), nullable=False)  # followers | likes | comments | delivered
+    value = Column(Integer, nullable=False)
+    source = Column(String(200), nullable=False, default="")
+    note = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, default=_now, nullable=False)

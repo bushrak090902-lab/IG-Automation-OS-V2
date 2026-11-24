@@ -15,13 +15,13 @@
   // their historical "Test <status>" label so simulation rows stay
   // distinguishable from real diagnostic runs.
   function statusLabel(o) {
-    if (o.execution_mode === 'diagnostic' && o.job_status) {
+    if (o.execution_mode === 'diagnostic' && o.job_status && (o.status === 'pending' || o.status === 'processing')) {
       const js = o.job_status.replaceAll('_', ' ');
       if (ACTIVE_JOB.includes(o.job_status)) {
         const retry = (o.job_attempts || 0) > 1 ? ' · retry ' + (o.job_attempts - 1) : '';
         return 'diag ' + js + (o.job_worker ? ' · ' + o.job_worker : '') + retry;
       }
-      if (o.status === 'pending' || o.status === 'processing') return 'diag ' + js;
+      return 'diag ' + js;
     }
     return o.execution_mode === 'test' ? 'Test ' + o.status.replaceAll('_', ' ') : o.status.replaceAll('_', ' ');
   }
@@ -31,9 +31,10 @@
   function progressLabel(o) {
     if (o.execution_mode === 'test') return 'Simulation only — 0 delivered';
     if (o.execution_mode === 'diagnostic') {
-      const r = o.job_result;
-      if (r && r.session_healthy && r.target_accessible) return 'Checks passed — 0 delivered';
-      if (o.job_error) return 'Failed: ' + truncate(o.job_error, 42);
+      if (o.completed_quantity > 0) return `${o.completed_quantity} / ${o.requested_quantity} delivered (recorded)`;
+      const growth = o.observed_delta != null ? ` · ${o.observed_delta >= 0 ? '+' : ''}${o.observed_delta} observed` : '';
+      if (o.status === 'verified') return 'Verified · 0 delivered' + growth;
+      if (o.status === 'failed' && o.job_error) return 'Failed: ' + truncate(o.job_error, 42);
       return 'Diagnostics only — 0 delivered';
     }
     return `${o.completed_quantity} / ${o.requested_quantity}`;
@@ -81,8 +82,24 @@
       } else {
         jobHtml = '<p class="muted">Manual request — no background job attached.</p>';
       }
+      if (o.execution_mode === 'diagnostic') {
+        const obs = (o.observations || []).map(x => `<p class="muted">${IGA.fmtDate(x.created_at)} — ${escape(x.kind.replaceAll('_',' '))}: ${escape(x.metric)} ${x.value}${x.source ? ' · ' + escape(x.source) : ''}${x.note ? ' · ' + escape(x.note) : ''}</p>`).join('');
+        const growth = o.observed_delta != null ? ` · change ${o.observed_delta >= 0 ? '+' : ''}${o.observed_delta} (observed, not delivered by this system)` : '';
+        jobHtml += `<p>Delivered: ${o.completed_quantity} / ${o.requested_quantity}${o.operator_delivered ? ' (recorded by operator)' : ''}${o.observed_metric ? ` · public ${escape(o.observed_metric)} baseline ${o.observed_baseline}${o.observed_latest != null ? ', latest ' + o.observed_latest : ''}${growth}` : ''}</p>${obs}`;
+        if (['verified', 'partially_completed', 'failed'].includes(o.status)) {
+          jobHtml += `<form id="svc-delivery-form" class="svc-filters"><input class="input" id="svc-delivery-qty" type="number" min="1" placeholder="Delivered qty" required><input class="input" id="svc-delivery-source" maxlength="200" placeholder="Source (e.g. Meta ads report)" required><button class="btn-ghost btn-sm" type="submit">Record delivery</button></form>`;
+        }
+      }
       $('svc-detail-content').innerHTML = `<p>Request #${o.id} · ${escape(o.service_type)} · ${escape(modeLabel(o))} · ${escape(o.status.replaceAll('_',' '))} · ${o.completed_quantity}/${o.requested_quantity}</p>${jobHtml}<p class="muted">${escape(o.notes)}</p>`;
       $('svc-logs').innerHTML = logs.map(l => `<p>${IGA.fmtDate(l.created_at)} — ${escape(l.event_type)}: ${escape(l.message)}</p>`).join('') || 'No logs';
+      const df = $('svc-delivery-form');
+      if (df) df.onsubmit = async ev => {
+        ev.preventDefault();
+        try {
+          await IGA.api(`/v1/instagram-services/orders/${id}/deliveries`, {method:'POST', body:JSON.stringify({quantity:Number($('svc-delivery-qty').value), source:$('svc-delivery-source').value})});
+          IGA.toast('Delivered amount recorded', 'success'); await refresh(); await detail(id);
+        } catch(e) { IGA.toast(e.message, 'error'); }
+      };
       $('svc-detail').scrollIntoView({behavior:'smooth',block:'nearest'});
     } catch(e) { IGA.toast(e.message, 'error'); }
   }

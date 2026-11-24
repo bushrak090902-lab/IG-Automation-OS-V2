@@ -63,7 +63,7 @@
       </select>
       <select class="input" id="svc-filter-status">
         <option value="">All statuses</option>
-        {% for status in ['pending','processing','completed','partially_completed','failed','cancelled'] %}
+        {% for status in ['pending','processing','verified','completed','partially_completed','failed','cancelled'] %}
         <option value="{{ status }}">{{ status|replace('_',' ')|title }}</option>
         {% endfor %}
       </select>
